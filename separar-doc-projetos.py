@@ -2,85 +2,102 @@ import streamlit as st
 import pandas as pd
 import zipfile
 import io
+import re
 
-# --- Interface Visual do Site ---
-st.title("Filtro de PDFs por Valor na Planilha 🗂️💰")
-st.write("Envie sua planilha e seus PDFs. O sistema vai ignorar os itens zerados na planilha e devolver apenas os arquivos válidos.")
+# Função para garantir que o valor seja lido como número, mesmo se o Excel estiver formatado como texto (ex: "1.000,00")
+def limpar_valor(val):
+    if pd.isna(val):
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    
+    val_str = str(val).strip()
+    # Converte padrão brasileiro para padrão de computador
+    if ',' in val_str and '.' in val_str:
+        val_str = val_str.replace('.', '').replace(',', '.')
+    elif ',' in val_str:
+        val_str = val_str.replace(',', '.')
+        
+    try:
+        return float(val_str)
+    except:
+        return 0.0
 
-# 1. Uploads
+# --- Interface Visual ---
+st.title("Separador de PDFs por Projeto (Exclui Zerados) ✂️📂")
+st.write("O sistema lerá a 'Ordem' do arquivo, verificará o valor no projeto selecionado e descartará os itens com valor 0,00.")
+
 planilha_enviada = st.file_uploader("1. Envie a Planilha (Excel)", type=["xlsx", "xls"])
-arquivos_enviados = st.file_uploader("2. Envie os PDFs", type=["pdf"], accept_multiple_files=True)
+arquivos_enviados = st.file_uploader("2. Envie os PDFs (já renomeados com a Ordem)", type=["pdf"], accept_multiple_files=True)
 
 if planilha_enviada:
     try:
-        # Lê a planilha
         df = pd.read_excel(planilha_enviada)
         
         st.write("---")
         st.write("⚙️ **Configuração das Colunas**")
         
         colunas = df.columns.tolist()
+        col_ordem = st.selectbox("Qual coluna contém a ORDEM (001, 002...)?", colunas)
+        col_valor = st.selectbox("Qual é a coluna do PROJETO (para checar os valores)?", colunas)
         
-        # O usuário escolhe onde está a chave do documento e onde está o valor
-        col_chave = st.selectbox("Qual coluna contém a IDENTIFICAÇÃO do arquivo (ex: Nome, NF, Histórico)?", colunas)
-        col_valor = st.selectbox("Qual coluna contém o VALOR (para filtrar os zerados)?", colunas)
-        
-        if arquivos_enviados and st.button("Filtrar Documentos"):
-            with st.spinner("Analisando valores e separando arquivos..."):
+        if arquivos_enviados and st.button("Filtrar Arquivos"):
+            with st.spinner("Analisando valores..."):
                 
-                # 1. Limpeza dos Dados: Transforma a coluna de valor em número (ignora erros/textos)
-                df[col_valor] = pd.to_numeric(df[col_valor], errors='coerce')
+                # 1. Identificar quais "Ordens" têm valor maior que zero
+                ordens_validas = []
                 
-                # 2. Filtra a planilha: Mantém apenas as linhas onde o valor é MAIOR que zero
-                df_validos = df[df[col_valor] > 0]
+                for index, row in df.iterrows():
+                    valor = limpar_valor(row[col_valor])
+                    
+                    if valor > 0:
+                        # Pega a ordem (ex: 10) e formata para 3 dígitos (ex: "010")
+                        ordem = str(row[col_ordem]).strip()
+                        if ordem.replace('.0', '').isdigit():
+                            ordem_formatada = str(int(float(ordem))).zfill(3)
+                            ordens_validas.append(ordem_formatada)
                 
-                # 3. Cria uma lista com as chaves (nomes/NFs) que passaram no filtro
-                chaves_validas = df_validos[col_chave].dropna().astype(str).tolist()
-                
-                # Limpa as chaves para facilitar a busca (tudo minúsculo e sem espaços sobrando)
-                chaves_validas = [chave.strip().lower() for chave in chaves_validas]
-                
-                # 4. Prepara o arquivo ZIP
+                # 2. Filtrar os PDFs
                 zip_buffer = io.BytesIO()
                 arquivos_salvos = 0
-                arquivos_ignorados = 0
+                arquivos_ignorados = []
                 
                 with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
                     for arquivo in arquivos_enviados:
-                        nome_pdf = arquivo.name.lower()
+                        nome_pdf = arquivo.name
                         
-                        # Verifica se alguma das chaves válidas da planilha está escrita no nome do PDF
-                        # Ex: Se a chave for "NF.123", ele checa se "nf.123" faz parte do nome do arquivo
-                        arquivo_valido = False
-                        for chave in chaves_validas:
-                            if chave in nome_pdf:
-                                arquivo_valido = True
-                                break # Achou a chave, não precisa continuar procurando
+                        # Captura os primeiros números do nome do arquivo (ex: pega "010" de "010 - Medicsys...")
+                        match_ordem_pdf = re.match(r'^(\d+)\s*-', nome_pdf)
                         
-                        # Se for válido, coloca no ZIP
-                        if arquivo_valido:
-                            zip_file.writestr(arquivo.name, arquivo.getvalue())
-                            arquivos_salvos += 1
+                        if match_ordem_pdf:
+                            ordem_do_pdf = match_ordem_pdf.group(1).zfill(3)
+                            
+                            # Se a ordem do PDF estiver na nossa lista de valores > 0, ele entra no ZIP
+                            if ordem_do_pdf in ordens_validas:
+                                zip_file.writestr(nome_pdf, arquivo.getvalue())
+                                arquivos_salvos += 1
+                            else:
+                                arquivos_ignorados.append(nome_pdf)
                         else:
-                            arquivos_ignorados += 1
+                            # Se por acaso o arquivo não tiver a ordem no nome, guarda numa lista de aviso
+                            arquivos_ignorados.append(f"{nome_pdf} (Sem nº de ordem no nome)")
                 
-                # 5. Exibe os resultados
-                st.success(f"🎉 Pronto! {arquivos_salvos} arquivos possuíam valor e foram separados.")
+                # 3. Mostrar os Resultados
+                st.success(f"🎉 Pronto! {arquivos_salvos} arquivos possuíam valor e foram separados no ZIP.")
                 
-                if arquivos_ignorados > 0:
-                    st.info(f"ℹ️ {arquivos_ignorados} arquivos foram ignorados (valor zerado ou não encontrados na planilha).")
+                if arquivos_ignorados:
+                    st.warning(f"⚠️ {len(arquivos_ignorados)} arquivos foram ignorados (Zerados no projeto ou erro de nome).")
+                    with st.expander("Ver lista de arquivos ignorados"):
+                        for arq in arquivos_ignorados:
+                            st.write(f"- {arq}")
                 
-                # Botão de Download do ZIP pronto
                 if arquivos_salvos > 0:
                     st.download_button(
                         label="⬇️ Baixar PDFs Válidos (ZIP)",
                         data=zip_buffer.getvalue(),
-                        file_name="PDFs_Com_Valor.zip",
+                        file_name=f"PDFs_Filtrados_{col_valor[:10].replace(' ', '_')}.zip",
                         mime="application/zip"
                     )
                 
     except Exception as e:
-        st.error(f"❌ Erro ao processar. Detalhe: {e}")
-
-elif arquivos_enviados and not planilha_enviada:
-    st.info("⚠️ Envie a planilha primeiro para configurar as colunas.")
+        st.error(f"❌ Erro ao ler a planilha. Detalhe: {e}")
