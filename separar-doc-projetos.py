@@ -24,7 +24,7 @@ def limpar_valor(val):
         return 0.0
 
 # --- Interface Visual ---
-st.title("Separador de PDFs por Projeto (Exclui Zerados) ✂️📂")
+st.title("Separador de PDFs por Projeto✂️📂")
 st.write("O sistema lerá a 'Ordem' do arquivo, verificará o valor no projeto selecionado e descartará os itens com valor 0,00.")
 
 planilha_enviada = st.file_uploader("1. Envie a Planilha (Excel)", type=["xlsx", "xls"])
