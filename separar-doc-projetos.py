@@ -29,7 +29,7 @@ def limpar_nome_pasta(nome):
     return re.sub(r'[\\/*?:"<>|]', '_', str(nome)).strip()
 
 # --- Interface Visual ---
-st.title("Separador de PDFs por Projeto ✂️📂")
+st.title("Separador de PDFs por Projeto")
 st.write("O sistema organizará os PDFs em pastas individuais para cada projeto selecionado.")
 
 planilha_enviada = st.file_uploader("1. Envie a Planilha (Excel)", type=["xlsx", "xls"], key="file_excel")
