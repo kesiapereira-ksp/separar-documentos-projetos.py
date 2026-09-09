@@ -1,0 +1,13 @@
+name: Manter Streamlit Ativo
+
+on:
+  schedule:
+    - cron: '0 12 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Visitar o App
+        run: curl -s https://separar-documentos-projetos.streamlit.app/ > /dev/null
