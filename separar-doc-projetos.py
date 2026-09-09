@@ -24,7 +24,7 @@ def limpar_valor(val):
         return 0.0
 
 # --- Interface Visual ---
-st.title("Separador de PDFs por Projeto✂️📂")
+st.title("Separador de PDFs por Projeto ✂️📂")
 st.write("O sistema lerá a 'Ordem' do arquivo, verificará o valor no projeto selecionado e descartará os itens com valor 0,00.")
 
 planilha_enviada = st.file_uploader("1. Envie a Planilha (Excel)", type=["xlsx", "xls"])
@@ -45,17 +45,16 @@ if planilha_enviada:
             with st.spinner("Analisando valores..."):
                 
                 # 1. Identificar quais "Ordens" têm valor maior que zero
-                ordens_validas = []
+                ordens_validas = set()
                 
                 for index, row in df.iterrows():
                     valor = limpar_valor(row[col_valor])
                     
                     if valor > 0:
-                        # Pega a ordem (ex: 10) e formata para 3 dígitos (ex: "010")
                         ordem = str(row[col_ordem]).strip()
                         if ordem.replace('.0', '').isdigit():
                             ordem_formatada = str(int(float(ordem))).zfill(3)
-                            ordens_validas.append(ordem_formatada)
+                            ordens_validas.add(ordem_formatada)
                 
                 # 2. Filtrar os PDFs
                 zip_buffer = io.BytesIO()
@@ -66,21 +65,24 @@ if planilha_enviada:
                     for arquivo in arquivos_enviados:
                         nome_pdf = arquivo.name
                         
-                        # Captura os primeiros números do nome do arquivo (ex: pega "010" de "010 - Medicsys...")
-                        match_ordem_pdf = re.match(r'^(\d+)\s*-', nome_pdf)
+                        # Captura todo o texto antes do hífen "-" (ex: "001; 004")
+                        match_prefixo = re.match(r'^(.*?)\s*-', nome_pdf)
                         
-                        if match_ordem_pdf:
-                            ordem_do_pdf = match_ordem_pdf.group(1).zfill(3)
+                        if match_prefixo:
+                            prefixo_texto = match_prefixo.group(1)
                             
-                            # Se a ordem do PDF estiver na nossa lista de valores > 0, ele entra no ZIP
-                            if ordem_do_pdf in ordens_validas:
+                            # Extrai todos os números presentes no prefixo (ex: ['001', '004'])
+                            numeros_encontrados = re.findall(r'\d+', prefixo_texto)
+                            ordens_do_pdf = [num.zfill(3) for num in numeros_encontrados]
+                            
+                            # Se PELO MENOS UMA ordem do arquivo tiver valor > 0 na planilha, inclui o PDF
+                            if any(ordem in ordens_validas for ordem in ordens_do_pdf):
                                 zip_file.writestr(nome_pdf, arquivo.getvalue())
                                 arquivos_salvos += 1
                             else:
                                 arquivos_ignorados.append(nome_pdf)
                         else:
-                            # Se por acaso o arquivo não tiver a ordem no nome, guarda numa lista de aviso
-                            arquivos_ignorados.append(f"{nome_pdf} (Sem nº de ordem no nome)")
+                            arquivos_ignorados.append(f"{nome_pdf} (Sem hífen/número no início)")
                 
                 # 3. Mostrar os Resultados
                 st.success(f"🎉 Pronto! {arquivos_salvos} arquivos possuíam valor e foram separados no ZIP.")
