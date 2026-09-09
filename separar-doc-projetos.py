@@ -4,12 +4,10 @@ import zipfile
 import io
 import re
 
-# Função para evitar recarregar o Excel a cada clique (corrige o problema de piscar/recarregar)
 @st.cache_data
 def carregar_planilha(file):
     return pd.read_excel(file)
 
-# Função para converter valores no padrão BR ("1.000,00") para float
 def limpar_valor(val):
     if pd.isna(val):
         return 0.0
@@ -27,7 +25,6 @@ def limpar_valor(val):
     except:
         return 0.0
 
-# Limpa caracteres especiais do nome do projeto para criar pastas válidas no ZIP
 def limpar_nome_pasta(nome):
     return re.sub(r'[\\/*?:"<>|]', '_', str(nome)).strip()
 
@@ -59,17 +56,33 @@ if planilha_enviada:
         )
         
         if arquivos_enviados and projetos_selecionados and st.button("Separar PDFs por Projeto", key="btn_filtrar"):
-            with st.spinner("Organizando arquivos por pasta de projeto..."):
+            with st.spinner("Processando e otimizando arquivos..."):
                 
+                # Otimização 1: Mapeia as ordens de TODOS os PDFs de uma só vez (executa Regex apenas 1x por arquivo)
+                mapa_pdfs_ordens = []
+                for arquivo in arquivos_enviados:
+                    nome_pdf = arquivo.name
+                    match_prefixo = re.match(r'^(.*?)\s*-', nome_pdf)
+                    
+                    if match_prefixo:
+                        prefixo_texto = match_prefixo.group(1)
+                        numeros = re.findall(r'\d+', prefixo_texto)
+                        ordens_formatadas = [num.zfill(3) for num in numeros]
+                        mapa_pdfs_ordens.append({
+                            "obj": arquivo,
+                            "nome": nome_pdf,
+                            "ordens": ordens_formatadas
+                        })
+
                 zip_buffer = io.BytesIO()
                 resumo_projetos = {}
                 
+                # Otimização 2: Gravação sequencial do ZIP
                 with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                    
                     for col_projeto in projetos_selecionados:
                         nome_pasta = limpar_nome_pasta(col_projeto)
                         
-                        # 1. Mapeia ordens válidas (> 0) no projeto atual
+                        # Extrai ordens válidas (> 0) no projeto atual
                         ordens_validas = set()
                         for _, row in df.iterrows():
                             valor = limpar_valor(row[col_projeto])
@@ -78,25 +91,16 @@ if planilha_enviada:
                                 if ordem.replace('.0', '').isdigit():
                                     ordens_validas.add(str(int(float(ordem))).zfill(3))
                         
-                        # 2. Copia os PDFs correspondentes para a pasta do projeto no ZIP
+                        # Associa e inclui no ZIP
                         qtd_salvos = 0
-                        for arquivo in arquivos_enviados:
-                            nome_pdf = arquivo.name
-                            match_prefixo = re.match(r'^(.*?)\s*-', nome_pdf)
-                            
-                            if match_prefixo:
-                                prefixo_texto = match_prefixo.group(1)
-                                numeros_encontrados = re.findall(r'\d+', prefixo_texto)
-                                ordens_do_pdf = [num.zfill(3) for num in numeros_encontrados]
-                                
-                                if any(ordem in ordens_validas for ordem in ordens_do_pdf):
-                                    caminho_no_zip = f"{nome_pasta}/{nome_pdf}"
-                                    zip_file.writestr(caminho_no_zip, arquivo.getvalue())
-                                    qtd_salvos += 1
+                        for item in mapa_pdfs_ordens:
+                            if any(ordem in ordens_validas for ordem in item["ordens"]):
+                                caminho_no_zip = f"{nome_pasta}/{item['nome']}"
+                                zip_file.writestr(caminho_no_zip, item["obj"].getvalue())
+                                qtd_salvos += 1
                         
                         resumo_projetos[col_projeto] = qtd_salvos
                 
-                # 3. Exibe o resultado final
                 st.success("🎉 Arquivos separados com sucesso!")
                 
                 st.write("📊 **Resumo dos PDFs separados por Projeto:**")
