@@ -3,9 +3,12 @@ import pandas as pd
 import zipfile
 import io
 import re
+import gc
 
 @st.cache_data
 def carregar_planilha(file):
+    # Reseta o ponteiro do arquivo de upload para garantir leitura correta
+    file.seek(0)
     return pd.read_excel(file)
 
 def limpar_valor(val):
@@ -68,6 +71,10 @@ if planilha_enviada:
                         prefixo_texto = match_prefixo.group(1)
                         numeros = re.findall(r'\d+', prefixo_texto)
                         ordens_formatadas = [num.zfill(3) for num in numeros]
+                        
+                        # Reseta o ponteiro de leitura do PDF individual
+                        arquivo.seek(0)
+                        
                         mapa_pdfs_ordens.append({
                             "obj": arquivo,
                             "nome": nome_pdf,
@@ -77,7 +84,6 @@ if planilha_enviada:
                 zip_buffer = io.BytesIO()
                 resumo_projetos = {}
                 
-                # allowZip64=True corrigido aqui para permitir pacotes grandes sem erros
                 with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zip_file:
                     for col_projeto in projetos_selecionados:
                         nome_pasta = limpar_nome_pasta(col_projeto)
@@ -94,10 +100,14 @@ if planilha_enviada:
                         for item in mapa_pdfs_ordens:
                             if any(ordem in ordens_validas for ordem in item["ordens"]):
                                 caminho_no_zip = f"{nome_pasta}/{item['nome']}"
-                                zip_file.writestr(caminho_no_zip, item["obj"].getvalue())
+                                item["obj"].seek(0)
+                                zip_file.writestr(caminho_no_zip, item["obj"].read())
                                 qtd_salvos += 1
                         
                         resumo_projetos[col_projeto] = qtd_salvos
+                
+                # Força a liberação da memória no Python
+                gc.collect()
                 
                 st.success("🎉 Arquivos separados com sucesso!")
                 
