@@ -29,7 +29,7 @@ def limpar_nome_pasta(nome):
     return re.sub(r'[\\/*?:"<>|]', '_', str(nome)).strip()
 
 # --- Interface Visual ---
-st.title("Separador de PDFs por Projeto")
+st.title("Separador de PDFs por Projeto ✂️📂")
 st.write("O sistema organizará os PDFs em pastas individuais para cada projeto selecionado.")
 
 planilha_enviada = st.file_uploader("1. Envie a Planilha (Excel)", type=["xlsx", "xls"], key="file_excel")
@@ -56,9 +56,9 @@ if planilha_enviada:
         )
         
         if arquivos_enviados and projetos_selecionados and st.button("Separar PDFs por Projeto", key="btn_filtrar"):
-            with st.spinner("Processando e otimizando arquivos..."):
+            with st.spinner("Processando e criando arquivo ZIP..."):
                 
-                # Otimização 1: Mapeia as ordens de TODOS os PDFs de uma só vez (executa Regex apenas 1x por arquivo)
+                # Mapeia as ordens dos PDFs 1x para otimizar velocidade
                 mapa_pdfs_ordens = []
                 for arquivo in arquivos_enviados:
                     nome_pdf = arquivo.name
@@ -77,12 +77,11 @@ if planilha_enviada:
                 zip_buffer = io.BytesIO()
                 resumo_projetos = {}
                 
-                # Otimização 2: Gravação sequencial do ZIP
-                with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                # allowZip64=True corrigido aqui para permitir pacotes grandes sem erros
+                with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zip_file:
                     for col_projeto in projetos_selecionados:
                         nome_pasta = limpar_nome_pasta(col_projeto)
                         
-                        # Extrai ordens válidas (> 0) no projeto atual
                         ordens_validas = set()
                         for _, row in df.iterrows():
                             valor = limpar_valor(row[col_projeto])
@@ -91,7 +90,6 @@ if planilha_enviada:
                                 if ordem.replace('.0', '').isdigit():
                                     ordens_validas.add(str(int(float(ordem))).zfill(3))
                         
-                        # Associa e inclui no ZIP
                         qtd_salvos = 0
                         for item in mapa_pdfs_ordens:
                             if any(ordem in ordens_validas for ordem in item["ordens"]):
